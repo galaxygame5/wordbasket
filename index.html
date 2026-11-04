@@ -1,0 +1,1028 @@
+<!DOCTYPE html>
+<html lang="ja" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ワードバスケット Online</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        emeraldDark: '#064e3b',
+                        emeraldGlass: 'rgba(6, 78, 59, 0.85)',
+                    }
+                }
+            }
+        }
+    </script>
+    <!-- FontAwesome icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Canvas Confetti -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <!-- PeerJS for P2P Online -->
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;800&family=Zen+Maru+Gothic:wght@700;900&display=swap');
+        
+        body {
+            font-family: 'Zen Maru Gothic', 'Plus Jakarta Sans', sans-serif;
+            background: linear-gradient(135deg, #022c22 0%, #0f172a 50%, #064e3b 100%);
+            color: #f0fdf4;
+            user-select: none;
+            touch-action: manipulation;
+            min-height: 100vh;
+        }
+
+        .glass-panel {
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+        }
+
+        .basket-glow {
+            box-shadow: 0 0 35px rgba(16, 185, 129, 0.4);
+        }
+
+        @keyframes pulseGlow {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.03); opacity: 0.9; }
+        }
+        .animate-pulse-glow {
+            animation: pulseGlow 2s infinite ease-in-out;
+        }
+    </style>
+</head>
+<body class="min-h-screen text-slate-100 flex flex-col justify-between overflow-x-hidden">
+
+    <!-- Header / Navbar -->
+    <header class="w-full p-4 md:p-5 glass-panel sticky top-0 z-40 border-b border-emerald-500/30 flex justify-between items-center">
+        <div class="flex items-center space-x-3 cursor-pointer" onclick="location.reload()">
+            <div class="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-500 to-cyan-500 flex items-center justify-center shadow-lg shadow-emerald-500/30 border border-emerald-200/40">
+                <span class="text-3xl">🧺</span>
+            </div>
+            <div>
+                <h1 class="font-black text-2xl md:text-3xl tracking-wider bg-clip-text text-transparent bg-gradient-to-r from-emerald-300 via-cyan-200 to-teal-200">
+                    ワードバスケット Online
+                </h1>
+                <p class="text-xs text-emerald-300/80 font-mono tracking-widest uppercase">Real-time Shiritori Card Game</p>
+            </div>
+        </div>
+
+        <div id="headerInfo" class="hidden flex items-center space-x-3">
+            <div id="roomBadge" class="bg-slate-900/90 border border-emerald-500/40 px-4 py-2 rounded-full text-sm font-mono font-bold text-emerald-300 flex items-center gap-2 cursor-pointer hover:bg-slate-800 transition" onclick="copyRoomCode()">
+                <i class="fa-regular fa-copy"></i>
+                <span id="displayRoomCode">----</span>
+            </div>
+            <button id="soundToggleBtn" onclick="toggleSound()" class="w-11 h-11 rounded-full bg-slate-800/80 hover:bg-slate-700 border border-emerald-500/40 flex items-center justify-center text-emerald-300 text-lg transition">
+                <i class="fa-solid fa-volume-high" id="soundIcon"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content Container -->
+    <main class="container mx-auto px-4 py-6 max-w-5xl flex-grow flex flex-col justify-center">
+
+        <!-- VIEW 1: LOBBY -->
+        <div id="viewLobby" class="space-y-6 max-w-2xl mx-auto w-full">
+            <div class="text-center space-y-3 my-2">
+                <div class="inline-block px-4 py-1.5 bg-emerald-500/20 text-emerald-300 rounded-full text-sm font-bold border border-emerald-400/40 shadow-lg backdrop-blur-md">
+                    早い者勝ち！リアルタイムしりとりバトル 🧺
+                </div>
+                <h2 class="text-3xl md:text-5xl font-black text-white tracking-tight">ワードバスケット Online</h2>
+                <p class="text-emerald-200/80 text-sm md:text-base max-w-lg mx-auto">
+                    通話しながら手軽に遊べるオンライン版！<br>「場の文字」から始まり「手札の文字」で終わる単語を出して手札を出し切れ！
+                </p>
+            </div>
+
+            <div class="glass-panel rounded-3xl p-6 shadow-2xl space-y-3">
+                <label class="block text-sm font-bold uppercase tracking-wider text-emerald-200">プレイヤー名（ニックネーム）</label>
+                <input type="text" id="playerNameInput" maxlength="10" placeholder="名前を入力してください" 
+                    class="w-full bg-slate-950/90 border border-emerald-500/40 rounded-2xl px-5 py-4 text-white focus:outline-none focus:border-emerald-300 transition font-bold text-xl placeholder-slate-600">
+            </div>
+
+            <div class="glass-panel rounded-3xl p-6 shadow-2xl space-y-3">
+                <label class="block text-sm font-bold uppercase tracking-wider text-emerald-200">合言葉（部屋のパスワード）</label>
+                <input type="text" id="joinRoomCodeInput" placeholder="お好きな合言葉 (例: basket123)" 
+                    class="w-full bg-slate-950/90 border border-emerald-500/40 rounded-2xl px-5 py-4 text-white font-mono tracking-widest text-xl focus:outline-none focus:border-emerald-300 transition placeholder-slate-600">
+                <p class="text-xs text-emerald-300/70">全員が同じ合言葉を入力して接続してください。</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="glass-panel rounded-3xl p-6 shadow-2xl hover:border-emerald-400/60 transition flex flex-col justify-between space-y-4">
+                    <div>
+                        <div class="w-12 h-12 rounded-2xl bg-emerald-500/20 text-emerald-300 flex items-center justify-center text-2xl mb-2 border border-emerald-400/30">
+                            <i class="fa-solid fa-plus"></i>
+                        </div>
+                        <h3 class="font-bold text-xl text-white">部屋を作る (ホスト)</h3>
+                    </div>
+                    <button id="btnCreateRoom" class="w-full bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-600 hover:from-emerald-400 hover:to-cyan-500 text-white font-black text-lg py-4 rounded-2xl shadow-lg shadow-emerald-500/20 transition transform active:scale-95">
+                        部屋を作成
+                    </button>
+                </div>
+
+                <div class="glass-panel rounded-3xl p-6 shadow-2xl hover:border-cyan-400/60 transition flex flex-col justify-between space-y-4">
+                    <div>
+                        <div class="w-12 h-12 rounded-2xl bg-cyan-500/20 text-cyan-300 flex items-center justify-center text-2xl mb-2 border border-cyan-400/30">
+                            <i class="fa-solid fa-right-to-bracket"></i>
+                        </div>
+                        <h3 class="font-bold text-xl text-white">部屋に入る (ゲスト)</h3>
+                    </div>
+                    <button id="btnJoinRoom" class="w-full bg-gradient-to-r from-cyan-500 via-teal-500 to-emerald-600 hover:from-cyan-400 hover:to-emerald-500 text-white font-black text-lg py-4 rounded-2xl shadow-lg shadow-cyan-500/20 transition transform active:scale-95">
+                        部屋に参加
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- VIEW 2: WAITING LOBBY -->
+        <div id="viewRoomLobby" class="hidden space-y-5 max-w-2xl mx-auto w-full">
+            <div class="glass-panel rounded-3xl p-6 md:p-8 shadow-2xl space-y-6">
+                <div class="flex justify-between items-center border-b border-emerald-500/30 pb-4">
+                    <div>
+                        <span class="text-xs font-bold text-emerald-400 tracking-wider uppercase">GAME LOBBY</span>
+                        <h2 class="text-3xl font-black text-white flex items-center gap-2">
+                            合言葉: <span id="lobbyRoomCode" class="font-mono text-cyan-300">----</span>
+                        </h2>
+                    </div>
+                    <button onclick="copyRoomCode()" class="bg-slate-800/90 hover:bg-slate-700 text-emerald-300 text-sm font-bold px-4 py-2.5 rounded-2xl border border-emerald-500/40 flex items-center gap-2 transition">
+                        <i class="fa-regular fa-copy"></i> コピー
+                    </button>
+                </div>
+
+                <div class="bg-slate-950/80 rounded-2xl p-4 border border-emerald-500/30 text-center text-sm text-emerald-100 space-y-1">
+                    <div>💡 場の「頭文字」で始まり、自分の持っている「語尾のカード」で終わる単語を出します。</div>
+                    <div class="text-xs text-emerald-300/80">3文字以上限定 / 最後の手札（リーチ）は4文字以上で上がり！</div>
+                </div>
+
+                <div class="space-y-3">
+                    <div class="flex justify-between items-center text-sm font-bold text-emerald-200">
+                        <span>参加プレイヤー (<span id="playerCount">0</span>名)</span>
+                        <span class="text-emerald-400/80">2人以上で開始可能</span>
+                    </div>
+                    <div id="playerList" class="grid grid-cols-1 sm:grid-cols-2 gap-3 max-h-60 overflow-y-auto pr-1"></div>
+                </div>
+
+                <div class="pt-2">
+                    <button id="startGameBtn" onclick="startGame()" class="hidden w-full bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-600 hover:from-emerald-400 hover:to-cyan-400 text-white font-black text-xl py-5 rounded-2xl shadow-xl shadow-emerald-500/30 transition transform active:scale-95">
+                        対戦を開始する 🚀
+                    </button>
+                    <p id="waitingForHostMsg" class="text-center text-emerald-300/70 text-sm py-2 font-medium animate-pulse">
+                        ホストが対戦を開始するのを待っています...
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- VIEW 3: GAME PLAYING -->
+        <div id="viewGame" class="hidden space-y-5 w-full max-w-4xl mx-auto">
+            <!-- Header Info Status -->
+            <div class="glass-panel p-4 rounded-3xl border border-emerald-500/30 space-y-3">
+                <div class="flex justify-between items-center">
+                    <span class="text-xs font-bold text-emerald-400 uppercase tracking-wider">プレイヤー残り手札枚数</span>
+                    <span id="reachAlertBadge" class="hidden text-xs font-black bg-rose-500/20 text-rose-300 border border-rose-400/40 px-3 py-1 rounded-full animate-bounce">
+                        ⚠️ リーチが発生中！
+                    </span>
+                </div>
+                <div id="playerCardCounts" class="flex flex-wrap gap-2.5"></div>
+            </div>
+
+            <!-- MAIN BASKET BOARD AREA -->
+            <div class="glass-panel rounded-3xl p-6 shadow-2xl border-2 border-emerald-500/40 space-y-5 text-center relative overflow-hidden">
+                
+                <!-- 直前の出し手と単語の表示エリア -->
+                <div class="bg-slate-950/80 border border-emerald-500/30 rounded-2xl p-3 md:p-4 space-y-1">
+                    <span class="text-xs text-emerald-300/80 font-bold uppercase tracking-widest block">直前に出された単語情報</span>
+                    <div id="lastWordDisplay" class="text-lg md:text-2xl font-black text-cyan-300">
+                        「---」
+                    </div>
+                </div>
+
+                <!-- バスケット中心：頭文字（場のカード） -->
+                <div class="py-4 space-y-2">
+                    <span class="text-xs font-bold text-emerald-400 tracking-widest uppercase block">現在の頭文字（場のカード）</span>
+                    <div class="inline-flex items-center justify-center w-32 h-40 md:w-40 md:h-52 bg-gradient-to-b from-slate-900 to-slate-950 border-4 border-emerald-400 rounded-3xl shadow-2xl basket-glow relative animate-pulse-glow">
+                        <span id="currentFieldChar" class="text-6xl md:text-8xl font-black text-amber-300 font-mono drop-shadow-md">
+                            ?
+                        </span>
+                    </div>
+                </div>
+
+                <!-- 手札に戻す（Undo）ボタン & リセットボタン -->
+                <div class="flex justify-center items-center gap-3 pt-2">
+                    <button id="btnUndoCard" onclick="undoLastPlay()" class="bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-300 font-bold px-4 py-2.5 rounded-2xl text-xs md:text-sm transition flex items-center gap-2 shadow-lg">
+                        <i class="fa-solid fa-rotate-left"></i> 自分が今出したカードを手札に戻す
+                    </button>
+                    <button onclick="resetHand()" class="bg-slate-800 hover:bg-slate-700 border border-emerald-500/40 text-emerald-300 font-bold px-4 py-2.5 rounded-2xl text-xs md:text-sm transition flex items-center gap-2 shadow-lg">
+                        <i class="fa-solid fa-arrows-rotate"></i> 手札を全リセット (枚数+1)
+                    </button>
+                </div>
+            </div>
+
+            <!-- PLAYER HAND & INPUT FORM AREA -->
+            <div class="glass-panel p-6 rounded-3xl border border-emerald-500/30 space-y-4">
+                <div class="flex justify-between items-center">
+                    <span class="text-xs font-bold text-emerald-300 uppercase tracking-wider">
+                        あなたの手札 (<span id="myHandCount">0</span>枚)
+                    </span>
+                    <span id="myStatusBadge" class="text-xs font-bold text-cyan-300 bg-cyan-500/20 px-3 py-1 rounded-full border border-cyan-400/30">
+                        通常
+                    </span>
+                </div>
+
+                <!-- Cards Grid -->
+                <div id="myHandGrid" class="flex flex-wrap gap-2 md:gap-3 min-h-[70px] p-2 bg-slate-950/70 rounded-2xl border border-emerald-500/20"></div>
+
+                <!-- Word Input Form -->
+                <form onsubmit="handleWordSubmit(event)" class="space-y-3 pt-2">
+                    <div class="flex gap-2">
+                        <input type="text" id="wordInput" placeholder="単語を入力 (例: きのこ)" 
+                            class="flex-grow bg-slate-950 border border-emerald-500/40 rounded-2xl px-5 py-4 text-white font-bold text-xl md:text-2xl focus:outline-none focus:border-cyan-300 transition placeholder-slate-600">
+                        <button type="submit" class="bg-gradient-to-r from-emerald-500 to-cyan-600 hover:from-emerald-400 hover:to-cyan-500 text-white font-black text-lg px-8 py-4 rounded-2xl shadow-xl transition transform active:scale-95 flex items-center gap-2">
+                            <span>出す</span>
+                            <i class="fa-solid fa-paper-plane"></i>
+                        </button>
+                    </div>
+                    <p class="text-xs text-emerald-300/70">
+                        場の文字で始まり、手札の文字で終わる3文字以上の名詞を入力してください。（手札が残り1枚の時は4文字以上）
+                    </p>
+                </form>
+            </div>
+
+            <!-- Action Log -->
+            <div class="glass-panel p-4 rounded-3xl border border-emerald-500/30 space-y-2">
+                <div class="border-b border-emerald-500/20 pb-2">
+                    <span class="text-xs font-bold text-emerald-300 uppercase tracking-wider flex items-center gap-1.5">
+                        <i class="fa-solid fa-clock-rotate-left"></i> 対戦ログ
+                    </span>
+                </div>
+                <div id="actionLogList" class="space-y-1 max-h-36 overflow-y-auto text-xs text-emerald-100 font-medium pr-1"></div>
+            </div>
+        </div>
+
+        <!-- VIEW 4: GAME OVER -->
+        <div id="viewGameOver" class="hidden glass-panel rounded-3xl p-6 md:p-8 shadow-2xl text-center space-y-6 max-w-2xl mx-auto w-full border border-emerald-500/40">
+            <div class="py-2 space-y-2">
+                <div class="w-16 h-16 rounded-2xl bg-amber-500/20 text-amber-300 flex items-center justify-center text-3xl mx-auto mb-2 border border-amber-400/40 shadow-lg">
+                    🏆
+                </div>
+                <h2 class="text-3xl font-black text-amber-300">決着！</h2>
+                <p id="winnerDeclaredMsg" class="text-xl font-bold text-white">--- が上がり！</p>
+            </div>
+
+            <!-- リザルト：各プレイヤーの残りの手札一覧 -->
+            <div class="space-y-3 bg-slate-950/80 p-5 rounded-3xl border border-emerald-500/30 text-left">
+                <h3 class="text-xs font-bold text-emerald-300 uppercase tracking-wider text-center border-b border-emerald-500/20 pb-2">
+                    勝てなかったプレイヤーの残り手札
+                </h3>
+                <div id="resultPlayersHands" class="space-y-3 pt-1"></div>
+            </div>
+
+            <div id="gameOverHostControls" class="hidden space-y-2 pt-2">
+                <button onclick="startGame()" class="w-full bg-gradient-to-r from-emerald-500 to-cyan-600 hover:from-emerald-400 hover:to-cyan-400 text-white font-black text-xl py-5 rounded-2xl shadow-xl transition transform active:scale-95">
+                    もう一度遊ぶ 🔄
+                </button>
+            </div>
+            <p id="gameOverClientMsg" class="hidden text-sm text-emerald-300/70 animate-pulse">
+                ホストが次のゲームを準備中です...
+            </p>
+        </div>
+
+    </main>
+
+    <!-- NOTIFICATION MODAL -->
+    <div id="actionNoticeModal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm pointer-events-none">
+        <div class="glass-panel max-w-sm w-full rounded-3xl p-6 border-2 border-emerald-400 shadow-2xl text-center animate-pop space-y-3 bg-slate-900">
+            <div id="noticeIcon" class="text-4xl">📢</div>
+            <h3 id="noticeTitle" class="text-xl font-black text-white">通知</h3>
+            <p id="noticeBody" class="text-sm font-bold text-emerald-300">内容</p>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="p-4 text-center text-xs text-emerald-300/50 border-t border-emerald-500/10">
+        &copy; Word Basket Online - Fast-Paced Card Game
+    </footer>
+
+    <!-- GAME ENGINE & PEERJS SCRIPT -->
+    <script>
+        const PREFIX = "word-basket-v2-";
+
+        // 50音デッキリスト
+        const ALL_CHARS = [
+            "あ","い","う","え","お",
+            "か","き","く","け","こ",
+            "さ","し","す","せ","そ",
+            "た","ち","つ","て","と",
+            "な","に","ぬ","ね","の",
+            "は","ひ","ふ","へ","ほ",
+            "ま","み","む","め","も",
+            "や","ゆ","よ",
+            "ら","り","る","れ","ろ",
+            "わ"
+        ];
+
+        let peer = null, myId = "", myName = "", roomCode = "";
+        let isHost = false;
+        let connections = {}; 
+        let hostConn = null;
+
+        // GAME STATE OBJECT
+        let roomData = {
+            hostId: "",
+            status: 'LOBBY', // LOBBY, PLAYING, GAMEOVER
+            fieldCard: "",
+            lastPlayerId: "",
+            lastPlayerName: "",
+            lastWord: "",
+            lastFieldCardBefore: "",
+            deck: [],
+            players: {}, // { id: { id, name, hand: [], isHost } }
+            logs: []
+        };
+
+        let soundEnabled = true;
+
+        // AUDIO ENGINE
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        let audioCtx = null;
+
+        function playSound(type) {
+            if (!soundEnabled) return;
+            try {
+                if (!audioCtx) audioCtx = new AudioCtx();
+                if (audioCtx.state === 'suspended') audioCtx.resume();
+
+                const now = audioCtx.currentTime;
+                const osc = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+                osc.connect(gain);
+                gain.connect(audioCtx.destination);
+
+                if (type === 'tap') {
+                    osc.type = 'sine';
+                    osc.frequency.setValueAtTime(440, now);
+                    gain.gain.setValueAtTime(0.08, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
+                    osc.start(now);
+                    osc.stop(now + 0.05);
+                } else if (type === 'success') {
+                    [523.25, 659.25, 783.99].forEach((freq, i) => {
+                        const o = audioCtx.createOscillator();
+                        const g = audioCtx.createGain();
+                        o.connect(g);
+                        g.connect(audioCtx.destination);
+                        o.type = 'sine';
+                        o.frequency.setValueAtTime(freq, now + i * 0.08);
+                        g.gain.setValueAtTime(0.12, now + i * 0.08);
+                        g.gain.exponentialRampToValueAtTime(0.01, now + i * 0.08 + 0.2);
+                        o.start(now + i * 0.08);
+                        o.stop(now + i * 0.08 + 0.2);
+                    });
+                } else if (type === 'alert') {
+                    osc.type = 'sawtooth';
+                    osc.frequency.setValueAtTime(300, now);
+                    osc.frequency.linearRampToValueAtTime(150, now + 0.3);
+                    gain.gain.setValueAtTime(0.2, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+                    osc.start(now);
+                    osc.stop(now + 0.3);
+                } else if (type === 'victory') {
+                    [523.25, 659.25, 783.99, 1046.50].forEach((freq, i) => {
+                        const o = audioCtx.createOscillator();
+                        const g = audioCtx.createGain();
+                        o.connect(g);
+                        g.connect(audioCtx.destination);
+                        o.frequency.setValueAtTime(freq, now + i * 0.1);
+                        g.gain.setValueAtTime(0.15, now + i * 0.1);
+                        g.gain.exponentialRampToValueAtTime(0.01, now + i * 0.1 + 0.25);
+                        o.start(now + i * 0.1);
+                        o.stop(now + i * 0.1 + 0.25);
+                    });
+                }
+            } catch (e) {
+                console.warn("Audio exception:", e);
+            }
+        }
+
+        function showView(viewId) {
+            ['viewLobby', 'viewRoomLobby', 'viewGame', 'viewGameOver'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.classList.add('hidden');
+            });
+            const target = document.getElementById(viewId);
+            if (target) target.classList.remove('hidden');
+
+            const headerInfo = document.getElementById('headerInfo');
+            if (headerInfo) {
+                if (viewId !== 'viewLobby') headerInfo.classList.remove('hidden');
+                else headerInfo.classList.add('hidden');
+            }
+        }
+
+        function getPlayerName() {
+            const input = document.getElementById('playerNameInput');
+            const val = input ? input.value.trim() : '';
+            return val || 'プレイヤー' + Math.floor(Math.random() * 900 + 100);
+        }
+
+        function addLog(message) {
+            if (!roomData.logs) roomData.logs = [];
+            roomData.logs.unshift(message);
+            if (roomData.logs.length > 30) roomData.logs.pop();
+        }
+
+        function showNotice(icon, title, body, duration = 2000) {
+            document.getElementById('noticeIcon').innerText = icon;
+            document.getElementById('noticeTitle').innerText = title;
+            document.getElementById('noticeBody').innerText = body;
+            const modal = document.getElementById('actionNoticeModal');
+            if (modal) {
+                modal.classList.remove('hidden');
+                setTimeout(() => { modal.classList.add('hidden'); }, duration);
+            }
+        }
+
+        // --- ROOM MANAGEMENT ---
+
+        function handleCreateRoom() {
+            playSound('tap');
+            myName = getPlayerName();
+            const input = document.getElementById('joinRoomCodeInput');
+            roomCode = input ? input.value.trim().toLowerCase() : '';
+            
+            if (!roomCode) {
+                alert("合言葉を入力してください");
+                return;
+            }
+
+            if (typeof Peer === 'undefined') {
+                alert("通信ライブラリの読み込み中です。数秒待ってから再試行してください。");
+                return;
+            }
+
+            isHost = true;
+            const peerId = `${PREFIX}${roomCode}-host`;
+            peer = new Peer(peerId);
+
+            peer.on('open', (id) => {
+                myId = id;
+                roomData.hostId = myId;
+                roomData.players = {
+                    [myId]: { id: myId, name: myName, hand: [], isHost: true }
+                };
+                roomData.logs = [];
+                setupLobbyUI();
+                renderRoomState();
+            });
+
+            peer.on('error', (err) => {
+                if (err.type === 'unavailable-id') {
+                    alert("その合言葉はすでに使用されています。別の合言葉にしてください。");
+                } else {
+                    alert("接続エラーが発生しました: " + err.type);
+                }
+            });
+
+            peer.on('connection', (conn) => {
+                conn.on('open', () => {
+                    conn.on('data', (data) => handleHostData(conn, data));
+                });
+                conn.on('close', () => {
+                    delete connections[conn.peer];
+                    delete roomData.players[conn.peer];
+                    broadcastState();
+                });
+            });
+        }
+
+        function handleJoinRoom() {
+            playSound('tap');
+            myName = getPlayerName();
+            const input = document.getElementById('joinRoomCodeInput');
+            roomCode = input ? input.value.trim().toLowerCase() : '';
+
+            if (!roomCode) {
+                alert("合言葉を入力してください");
+                return;
+            }
+
+            if (typeof Peer === 'undefined') {
+                alert("通信ライブラリの読み込み中です。数秒待ってから再試行してください。");
+                return;
+            }
+
+            isHost = false;
+            const hostPeerId = `${PREFIX}${roomCode}-host`;
+            peer = new Peer();
+
+            peer.on('open', (id) => {
+                myId = id;
+                hostConn = peer.connect(hostPeerId);
+
+                hostConn.on('open', () => {
+                    hostConn.send({ type: 'JOIN', id: myId, name: myName });
+                    setupLobbyUI();
+                });
+
+                hostConn.on('data', (data) => handleClientData(data));
+            });
+
+            peer.on('error', () => {
+                alert("部屋が見つかりませんでした。合言葉を確認してください。");
+            });
+        }
+
+        function setupLobbyUI() {
+            document.getElementById('displayRoomCode').innerText = roomCode;
+            document.getElementById('lobbyRoomCode').innerText = roomCode;
+            showView('viewRoomLobby');
+        }
+
+        function broadcastState() {
+            if (!isHost) return;
+            Object.values(connections).forEach(c => c.send({ type: 'SYNC_STATE', roomData }));
+            renderRoomState();
+        }
+
+        function handleHostData(conn, data) {
+            if (data.type === 'JOIN') {
+                if (roomData.status !== 'LOBBY') {
+                    conn.send({ type: 'ERROR', message: '対戦はすでに進行中です' });
+                    return;
+                }
+                connections[conn.peer] = conn;
+                roomData.players[data.id] = { id: data.id, name: data.name, hand: [], isHost: false };
+                broadcastState();
+            } else if (data.type === 'PLAY_WORD') {
+                processPlayWord(data.playerId, data.word, data.endChar);
+            } else if (data.type === 'UNDO') {
+                processUndo(data.playerId);
+            } else if (data.type === 'RESET_HAND') {
+                processResetHand(data.playerId);
+            }
+        }
+
+        function handleClientData(data) {
+            if (data.type === 'SYNC_STATE') {
+                roomData = data.roomData;
+                renderRoomState();
+            } else if (data.type === 'ERROR') {
+                alert(data.message);
+            }
+        }
+
+        // --- WORD BASKET ENGINE ---
+
+        function shuffle(arr) {
+            const a = [...arr];
+            for (let i = a.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [a[i], a[j]] = [a[j], a[i]];
+            }
+            return a;
+        }
+
+        function normalizeChar(c) {
+            if (!c) return '';
+            const smallToBig = {
+                'ゃ':'や', 'ゅ':'ゆ', 'ょ':'よ', 'っ':'つ',
+                'ぁ':'あ', 'ぃ':'い', 'ぅ':'う', 'ぇ':'え', 'ぉ':'お',
+                'が':'か', 'ぎ':'き', 'ぐ':'く', 'げ':'け', 'ご':'こ',
+                'ざ':'さ', 'じ':'し', 'ず':'す', 'ぜ':'せ', 'ぞ':'そ',
+                'だ':'た', 'ぢ':'ち', 'づ':'つ', 'で':'て', 'ど':'と',
+                'ば':'は', 'び':'ひ', 'ぶ':'ふ', 'べ':'へ', 'ぼ':'ほ',
+                'ぱ':'は', 'ぴ':'ひ', 'ぷ':'ふ', 'ぺ':'へ', 'ぽ':'ほ'
+            };
+            return smallToBig[c] || c;
+        }
+
+        function getEndCharFromWord(word) {
+            if (!word) return '';
+            let last = word.slice(-1);
+            if (last === 'ー' && word.length >= 2) {
+                const prev = word.slice(-2, -1);
+                const vowelMap = {
+                    'あ':'あ','か':'あ','さ':'あ','た':'あ','な':'あ','は':'あ','ま':'あ','や':'あ','ら':'あ','わ':'あ',
+                    'い':'い','き':'い','し':'い','ち':'い','に':'い','ひ':'い','み':'い','り':'い',
+                    'う':'う','く':'う','す':'う','つ':'う','ぬ':'う','ふ':'う','む':'う','ゆ':'う','る':'う',
+                    'え':'え','け':'え','せ':'え','て':'え','ね':'え','へ':'え','め':'え','れ':'え',
+                    'お':'お','こ':'お','そ':'お','と':'お','の':'お','ほ':'お','も':'お','よ':'お','ろ':'お'
+                };
+                last = vowelMap[normalizeChar(prev)] || prev;
+            }
+            return normalizeChar(last);
+        }
+
+        window.startGame = function() {
+            playSound('tap');
+            if (!isHost) return;
+
+            const playerIds = Object.keys(roomData.players);
+            if (playerIds.length < 1) {
+                alert("対戦には1名以上のプレイヤーが必要です");
+                return;
+            }
+
+            // Create Deck
+            roomData.deck = shuffle([...ALL_CHARS]);
+            
+            // Deal 5 cards each
+            playerIds.forEach(id => {
+                roomData.players[id].hand = roomData.deck.splice(0, 5);
+            });
+
+            // Open initial field card
+            roomData.fieldCard = roomData.deck.splice(0, 1)[0];
+            roomData.lastPlayerId = "";
+            roomData.lastPlayerName = "";
+            roomData.lastWord = "（ゲーム開始）";
+            roomData.lastFieldCardBefore = "";
+            roomData.status = 'PLAYING';
+            roomData.logs = [];
+
+            addLog(`=== ゲーム開始！ 最初の文字: 「${roomData.fieldCard}」 ===`);
+            broadcastState();
+        };
+
+        function processPlayWord(playerId, word, endChar) {
+            const player = roomData.players[playerId];
+            if (!player) return;
+
+            const cardIndex = player.hand.indexOf(endChar);
+            if (cardIndex === -1) return;
+
+            // Remove card from hand
+            player.hand.splice(cardIndex, 1);
+
+            // Update Game State
+            roomData.lastFieldCardBefore = roomData.fieldCard;
+            roomData.fieldCard = endChar;
+            roomData.lastPlayerId = playerId;
+            roomData.lastPlayerName = player.name;
+            roomData.lastWord = word;
+
+            playSound('success');
+            addLog(`🎯 ${player.name}: 「${word}」 (${roomData.lastFieldCardBefore} ➔ ${endChar})`);
+
+            // Check Win Condition
+            if (player.hand.length === 0) {
+                roomData.status = 'GAMEOVER';
+                addLog(`🏆 ${player.name} がすべての手札を出し切り、勝利しました！`);
+            }
+
+            broadcastState();
+        }
+
+        function processUndo(playerId) {
+            if (roomData.lastPlayerId !== playerId) return;
+
+            const player = roomData.players[playerId];
+            if (!player || !roomData.lastFieldCardBefore) return;
+
+            // Return card to player's hand
+            player.hand.push(roomData.fieldCard);
+
+            // Revert field state
+            const undoneWord = roomData.lastWord;
+            roomData.fieldCard = roomData.lastFieldCardBefore;
+            roomData.lastPlayerId = "";
+            roomData.lastPlayerName = "";
+            roomData.lastWord = "（取り消されました）";
+            roomData.lastFieldCardBefore = "";
+
+            playSound('alert');
+            addLog(`↩️ ${player.name} が「${undoneWord}」を取り消し、手札に戻しました。`);
+            broadcastState();
+        }
+
+        function processResetHand(playerId) {
+            const player = roomData.players[playerId];
+            if (!player) return;
+
+            const currentCount = player.hand.length;
+            const newCount = currentCount + 1;
+
+            roomData.deck.push(...player.hand);
+            roomData.deck = shuffle(roomData.deck);
+
+            if (roomData.deck.length < newCount) {
+                roomData.deck.push(...ALL_CHARS);
+                roomData.deck = shuffle(roomData.deck);
+            }
+
+            player.hand = roomData.deck.splice(0, newCount);
+
+            playSound('tap');
+            addLog(`🔄 ${player.name} が手札をリセットしました（手札 ${currentCount}枚 ➔ ${newCount}枚）`);
+            broadcastState();
+        }
+
+        // --- SUBMISSION & VALIDATION ---
+
+        window.handleWordSubmit = function(e) {
+            e.preventDefault();
+            const input = document.getElementById('wordInput');
+            const word = input ? input.value.trim() : '';
+            if (!word) return;
+
+            const myPlayer = roomData.players[myId];
+            if (!myPlayer) return;
+
+            const currentField = normalizeChar(roomData.fieldCard);
+            const startChar = normalizeChar(word.charAt(0));
+            const endChar = getEndCharFromWord(word);
+
+            if (startChar !== currentField) {
+                alert(`単語は「${roomData.fieldCard}」から始めてください。`);
+                return;
+            }
+
+            const hasEndCard = myPlayer.hand.some(c => normalizeChar(c) === endChar);
+            if (!hasEndCard) {
+                alert(`「${endChar}」で終わる手札カードを持っていません。`);
+                return;
+            }
+
+            if (word.length < 3) {
+                alert("単語は3文字以上で入力してください。");
+                return;
+            }
+
+            if (myPlayer.hand.length === 1 && word.length < 4) {
+                alert("上がりの単語は4文字以上でなければなりません！");
+                return;
+            }
+
+            if (word.endsWith("ん") || word.endsWith("ン")) {
+                alert("「ん」で終わる単語は出せません！");
+                return;
+            }
+
+            const matchedCard = myPlayer.hand.find(c => normalizeChar(c) === endChar);
+
+            if (isHost) {
+                processPlayWord(myId, word, matchedCard);
+            } else {
+                hostConn.send({ type: 'PLAY_WORD', playerId: myId, word: word, endChar: matchedCard });
+            }
+
+            if (input) input.value = '';
+        };
+
+        window.undoLastPlay = function() {
+            if (roomData.lastPlayerId !== myId) return;
+            playSound('tap');
+            if (isHost) {
+                processUndo(myId);
+            } else {
+                hostConn.send({ type: 'UNDO', playerId: myId });
+            }
+        };
+
+        window.resetHand = function() {
+            if (!confirm("手札をすべて捨てて、ペナルティ1枚追加で引き直しますか？")) return;
+            playSound('tap');
+            if (isHost) {
+                processResetHand(myId);
+            } else {
+                hostConn.send({ type: 'RESET_HAND', playerId: myId });
+            }
+        };
+
+        // --- RENDER ENGINE ---
+
+        function renderRoomState() {
+            if (!roomData) return;
+
+            const isHostUser = roomData.hostId === myId;
+            const myPlayer = roomData.players[myId];
+
+            if (roomData.status === 'LOBBY') {
+                showView('viewRoomLobby');
+
+                const startBtn = document.getElementById('startGameBtn');
+                const waitingMsg = document.getElementById('waitingForHostMsg');
+
+                if (isHostUser) {
+                    if (startBtn) startBtn.classList.remove('hidden');
+                    if (waitingMsg) waitingMsg.classList.add('hidden');
+                } else {
+                    if (startBtn) startBtn.classList.add('hidden');
+                    if (waitingMsg) waitingMsg.classList.remove('hidden');
+                }
+
+                const playerList = document.getElementById('playerList');
+                if (playerList) {
+                    playerList.innerHTML = '';
+                    const playersArray = Object.values(roomData.players);
+                    document.getElementById('playerCount').innerText = playersArray.length;
+
+                    playersArray.forEach(p => {
+                        const div = document.createElement('div');
+                        div.className = "flex items-center justify-between bg-slate-950/80 border border-emerald-500/30 p-4 rounded-2xl";
+                        div.innerHTML = `
+                            <div class="flex items-center space-x-3">
+                                <div class="w-10 h-10 rounded-full bg-emerald-500/20 text-emerald-300 font-bold flex items-center justify-center text-base border border-emerald-400/40">
+                                    ${escapeHtml(p.name.charAt(0))}
+                                </div>
+                                <span class="font-bold text-base text-slate-100">${escapeHtml(p.name)}</span>
+                            </div>
+                            ${p.isHost ? '<span class="text-xs font-bold bg-emerald-500/20 text-emerald-300 px-3 py-1 rounded-full border border-emerald-400/30">ホスト</span>' : ''}
+                        `;
+                        playerList.appendChild(div);
+                    });
+                }
+
+            } else if (roomData.status === 'PLAYING') {
+                showView('viewGame');
+
+                const playerCountsEl = document.getElementById('playerCardCounts');
+                let anyReach = false;
+                if (playerCountsEl) {
+                    playerCountsEl.innerHTML = '';
+                    Object.values(roomData.players).forEach(p => {
+                        const isReach = p.hand.length === 1;
+                        if (isReach) anyReach = true;
+
+                        const badge = document.createElement('div');
+                        badge.className = `px-4 py-2 rounded-2xl border font-bold text-sm flex items-center gap-2 ${
+                            isReach 
+                                ? 'bg-rose-500/20 text-rose-300 border-rose-400/50 animate-pulse' 
+                                : 'bg-slate-900/90 text-slate-100 border-emerald-500/30'
+                        }`;
+                        badge.innerHTML = `
+                            <span>${escapeHtml(p.name)}:</span>
+                            <span class="font-mono text-lg font-black ${isReach ? 'text-rose-300' : 'text-amber-300'}">${p.hand.length}枚</span>
+                            ${isReach ? '<span class="text-[10px] bg-rose-500 text-white font-black px-1.5 py-0.5 rounded">リーチ</span>' : ''}
+                        `;
+                        playerCountsEl.appendChild(badge);
+                    });
+                }
+
+                const reachBadge = document.getElementById('reachAlertBadge');
+                if (reachBadge) {
+                    if (anyReach) reachBadge.classList.remove('hidden');
+                    else reachBadge.classList.add('hidden');
+                }
+
+                document.getElementById('currentFieldChar').innerText = roomData.fieldCard || '?';
+                
+                const lastWordEl = document.getElementById('lastWordDisplay');
+                if (lastWordEl) {
+                    if (roomData.lastPlayerName && roomData.lastWord) {
+                        lastWordEl.innerHTML = `<span class="text-emerald-300 font-bold">${escapeHtml(roomData.lastPlayerName)}</span>: <span class="text-amber-300 font-black text-xl md:text-3xl">「${escapeHtml(roomData.lastWord)}」</span>`;
+                    } else {
+                        lastWordEl.innerText = roomData.lastWord || "（ゲーム開始）";
+                    }
+                }
+
+                const btnUndo = document.getElementById('btnUndoCard');
+                if (btnUndo) {
+                    if (roomData.lastPlayerId === myId) {
+                        btnUndo.classList.remove('opacity-40', 'cursor-not-allowed');
+                        btnUndo.disabled = false;
+                    } else {
+                        btnUndo.classList.add('opacity-40', 'cursor-not-allowed');
+                        btnUndo.disabled = true;
+                    }
+                }
+
+                if (myPlayer) {
+                    document.getElementById('myHandCount').innerText = myPlayer.hand.length;
+                    
+                    const statusBadge = document.getElementById('myStatusBadge');
+                    if (myPlayer.hand.length === 1) {
+                        statusBadge.innerText = '🔥 リーチ！ (上がりは4文字以上)';
+                        statusBadge.className = 'text-xs font-black text-rose-300 bg-rose-500/20 px-3 py-1 rounded-full border border-rose-400/40 animate-pulse';
+                    } else {
+                        statusBadge.innerText = '通常';
+                        statusBadge.className = 'text-xs font-bold text-cyan-300 bg-cyan-500/20 px-3 py-1 rounded-full border border-cyan-400/30';
+                    }
+
+                    const handGrid = document.getElementById('myHandGrid');
+                    handGrid.innerHTML = '';
+                    myPlayer.hand.forEach(char => {
+                        const card = document.createElement('div');
+                        card.className = "w-12 h-16 md:w-16 md:h-20 bg-gradient-to-b from-slate-800 to-slate-900 border-2 border-emerald-400/60 rounded-xl flex items-center justify-center font-mono font-black text-2xl md:text-3xl text-amber-300 shadow-md transform hover:-translate-y-1 transition";
+                        card.innerText = char;
+                        handGrid.appendChild(card);
+                    });
+                }
+
+                renderActionLogs();
+
+            } else if (roomData.status === 'GAMEOVER') {
+                showView('viewGameOver');
+                playSound('victory');
+                if (typeof confetti === 'function') {
+                    confetti({ particleCount: 150, spread: 90, origin: { y: 0.6 } });
+                }
+
+                const winnerName = roomData.lastPlayerName || "プレイヤー";
+                document.getElementById('winnerDeclaredMsg').innerText = `🎉 ${winnerName} の勝利！ 🎉`;
+
+                // リザルト画面での各プレイヤー残り手札のレンダリング
+                const resultListEl = document.getElementById('resultPlayersHands');
+                if (resultListEl) {
+                    resultListEl.innerHTML = '';
+                    Object.values(roomData.players).forEach(p => {
+                        const isWinner = p.id === roomData.lastPlayerId;
+                        const cardRow = document.createElement('div');
+                        cardRow.className = `p-4 rounded-2xl border space-y-2 ${isWinner ? 'bg-amber-500/10 border-amber-400/40' : 'bg-slate-900 border-emerald-500/20'}`;
+
+                        let cardsHtml = '';
+                        if (isWinner || p.hand.length === 0) {
+                            cardsHtml = `<span class="text-xs font-bold text-amber-300 bg-amber-500/20 px-3 py-1 rounded-full border border-amber-400/30">上がり（残り 0 枚）</span>`;
+                        } else {
+                            cardsHtml = p.hand.map(char => `
+                                <span class="w-8 h-10 bg-slate-950 border border-emerald-400/60 rounded-lg inline-flex items-center justify-center font-mono font-bold text-amber-300 text-base shadow">
+                                    ${escapeHtml(char)}
+                                </span>
+                            `).join(' ');
+                        }
+
+                        cardRow.innerHTML = `
+                            <div class="flex items-center justify-between">
+                                <span class="font-bold text-slate-100 flex items-center gap-2">
+                                    ${isWinner ? '👑' : '👤'} ${escapeHtml(p.name)}
+                                </span>
+                                <span class="text-xs font-mono text-emerald-300/80">残り ${p.hand.length} 枚</span>
+                            </div>
+                            <div class="flex flex-wrap gap-1.5 pt-1">
+                                ${cardsHtml}
+                            </div>
+                        `;
+                        resultListEl.appendChild(cardRow);
+                    });
+                }
+
+                const hostCtrl = document.getElementById('gameOverHostControls');
+                const clientMsg = document.getElementById('gameOverClientMsg');
+
+                if (isHostUser) {
+                    if (hostCtrl) hostCtrl.classList.remove('hidden');
+                    if (clientMsg) clientMsg.classList.add('hidden');
+                } else {
+                    if (hostCtrl) hostCtrl.classList.add('hidden');
+                    if (clientMsg) clientMsg.classList.remove('hidden');
+                }
+            }
+        }
+
+        function renderActionLogs() {
+            const logList = document.getElementById('actionLogList');
+            if (!logList) return;
+
+            if (!roomData.logs || roomData.logs.length === 0) {
+                logList.innerHTML = '<div class="text-slate-500 text-center py-2">対戦ログはありません</div>';
+                return;
+            }
+
+            logList.innerHTML = '';
+            roomData.logs.forEach((logText, idx) => {
+                const div = document.createElement('div');
+                div.className = `flex items-center gap-2 ${idx === 0 ? 'text-cyan-300 font-bold' : 'text-emerald-200/60'}`;
+                div.innerHTML = `
+                    <span class="text-[10px] text-emerald-400 font-mono">●</span>
+                    <span>${escapeHtml(logText)}</span>
+                `;
+                logList.appendChild(div);
+            });
+        }
+
+        window.toggleSound = function() {
+            soundEnabled = !soundEnabled;
+            const icon = document.getElementById('soundIcon');
+            if (icon) {
+                if (soundEnabled) icon.className = "fa-solid fa-volume-high";
+                else icon.className = "fa-solid fa-volume-xmark text-rose-400";
+            }
+        };
+
+        window.copyRoomCode = function() {
+            if (!roomCode) return;
+            navigator.clipboard.writeText(roomCode);
+            showNotice("📋", "コピー完了", `合言葉 [ ${roomCode} ] をコピーしました！`, 1500);
+        };
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            const btnCreate = document.getElementById('btnCreateRoom');
+            const btnJoin = document.getElementById('btnJoinRoom');
+
+            if (btnCreate) btnCreate.addEventListener('click', handleCreateRoom);
+            if (btnJoin) btnJoin.addEventListener('click', handleJoinRoom);
+        });
+    </script>
+</body>
+</html>
