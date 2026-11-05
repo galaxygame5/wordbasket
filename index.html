@@ -343,12 +343,13 @@
             lastFieldCardBefore: "",
             deck: [],
             players: {}, // { id: { id, name, hand: [], isHost } }
-            logs: []
+            logs: [],
+            lastActionType: "" // SE同期用アクション判定
         };
 
         let soundEnabled = true;
 
-        // AUDIO ENGINE
+        // AUDIO ENGINE (Web Audio API)
         const AudioCtx = window.AudioContext || window.webkitAudioContext;
         let audioCtx = null;
 
@@ -371,6 +372,15 @@
                     gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
                     osc.start(now);
                     osc.stop(now + 0.05);
+                } else if (type === 'play_card') {
+                    // カード提出時の弾けるパンチのあるSE
+                    osc.type = 'triangle';
+                    osc.frequency.setValueAtTime(587.33, now); // D5
+                    osc.frequency.exponentialRampToValueAtTime(880, now + 0.08); // A5
+                    gain.gain.setValueAtTime(0.25, now);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
+                    osc.start(now);
+                    osc.stop(now + 0.12);
                 } else if (type === 'success') {
                     [523.25, 659.25, 783.99].forEach((freq, i) => {
                         const o = audioCtx.createOscillator();
@@ -544,8 +554,9 @@
             showView('viewRoomLobby');
         }
 
-        function broadcastState() {
+        function broadcastState(actionType = "") {
             if (!isHost) return;
+            roomData.lastActionType = actionType;
             Object.values(connections).forEach(c => c.send({ type: 'SYNC_STATE', roomData }));
             renderRoomState();
         }
@@ -570,7 +581,13 @@
 
         function handleClientData(data) {
             if (data.type === 'SYNC_STATE') {
+                const prevFieldCard = roomData.fieldCard;
                 roomData = data.roomData;
+                
+                // カード提出アクション時に全員の端末でSEを再生
+                if (roomData.lastActionType === 'PLAY_CARD' && prevFieldCard !== roomData.fieldCard) {
+                    playSound('play_card');
+                }
                 renderRoomState();
             } else if (data.type === 'ERROR') {
                 alert(data.message);
@@ -588,7 +605,6 @@
             return a;
         }
 
-        // 濁点・半濁点・小文字の完全清音化（大文字化）テーブル
         function normalizeChar(c) {
             if (!c) return '';
             const map = {
@@ -603,7 +619,6 @@
             return map[c] || c;
         }
 
-        // 全50音の母音（あ・い・う・え・お）判定テーブル
         function getVowelOfChar(c) {
             if (!c) return '';
             const norm = normalizeChar(c);
@@ -617,7 +632,6 @@
             return vowelTable[norm] || norm;
         }
 
-        // 語尾文字の正確な算出（伸ばし棒ーの母音変換対応）
         function getEndCharFromWord(word) {
             if (!word) return '';
             let last = word.slice(-1);
@@ -638,15 +652,12 @@
                 return;
             }
 
-            // Create Deck
             roomData.deck = shuffle([...ALL_CHARS]);
             
-            // Deal 5 cards each
             playerIds.forEach(id => {
                 roomData.players[id].hand = roomData.deck.splice(0, 5);
             });
 
-            // Open initial field card
             roomData.fieldCard = roomData.deck.splice(0, 1)[0];
             roomData.lastPlayerId = "";
             roomData.lastPlayerName = "";
@@ -656,7 +667,7 @@
             roomData.logs = [];
 
             addLog(`=== ゲーム開始！ 最初の文字: 「${roomData.fieldCard}」 ===`);
-            broadcastState();
+            broadcastState('START');
         };
 
         function processPlayWord(playerId, word, endChar) {
@@ -666,26 +677,24 @@
             const cardIndex = player.hand.indexOf(endChar);
             if (cardIndex === -1) return;
 
-            // Remove card from hand
             player.hand.splice(cardIndex, 1);
 
-            // Update Game State
             roomData.lastFieldCardBefore = roomData.fieldCard;
             roomData.fieldCard = endChar;
             roomData.lastPlayerId = playerId;
             roomData.lastPlayerName = player.name;
             roomData.lastWord = word;
 
-            playSound('success');
             addLog(`🎯 ${player.name}: 「${word}」 (${roomData.lastFieldCardBefore} ➔ ${endChar})`);
 
-            // Check Win Condition
             if (player.hand.length === 0) {
                 roomData.status = 'GAMEOVER';
                 addLog(`🏆 ${player.name} がすべての手札を出し切り、勝利しました！`);
+                broadcastState('GAMEOVER');
+            } else {
+                if (isHost) playSound('play_card');
+                broadcastState('PLAY_CARD');
             }
-
-            broadcastState();
         }
 
         function processUndo(playerId) {
@@ -694,10 +703,8 @@
             const player = roomData.players[playerId];
             if (!player || !roomData.lastFieldCardBefore) return;
 
-            // Return card to player's hand
             player.hand.push(roomData.fieldCard);
 
-            // Revert field state
             const undoneWord = roomData.lastWord;
             roomData.fieldCard = roomData.lastFieldCardBefore;
             roomData.lastPlayerId = "";
@@ -705,9 +712,9 @@
             roomData.lastWord = "（取り消されました）";
             roomData.lastFieldCardBefore = "";
 
-            playSound('alert');
+            if (isHost) playSound('alert');
             addLog(`↩️ ${player.name} が「${undoneWord}」を取り消し、手札に戻しました。`);
-            broadcastState();
+            broadcastState('UNDO');
         }
 
         function processResetHand(playerId) {
@@ -727,9 +734,9 @@
 
             player.hand = roomData.deck.splice(0, newCount);
 
-            playSound('tap');
+            if (isHost) playSound('tap');
             addLog(`🔄 ${player.name} が手札をリセットしました（手札 ${currentCount}枚 ➔ ${newCount}枚）`);
-            broadcastState();
+            broadcastState('RESET');
         }
 
         // --- SUBMISSION & VALIDATION ---
@@ -786,7 +793,6 @@
 
         window.undoLastPlay = function() {
             if (roomData.lastPlayerId !== myId) return;
-            playSound('tap');
             if (isHost) {
                 processUndo(myId);
             } else {
@@ -796,7 +802,6 @@
 
         window.resetHand = function() {
             if (!confirm("手札をすべて捨てて、ペナルティ1枚追加で引き直しますか？")) return;
-            playSound('tap');
             if (isHost) {
                 processResetHand(myId);
             } else {
@@ -936,7 +941,6 @@
                 const winnerName = roomData.lastPlayerName || "プレイヤー";
                 document.getElementById('winnerDeclaredMsg').innerText = `🎉 ${winnerName} の勝利！ 🎉`;
 
-                // リザルト画面での各プレイヤー残り手札のレンダリング
                 const resultListEl = document.getElementById('resultPlayersHands');
                 if (resultListEl) {
                     resultListEl.innerHTML = '';
