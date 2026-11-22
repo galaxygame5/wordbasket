@@ -275,6 +275,14 @@
                 <p id="winnerDeclaredMsg" class="text-xl font-bold text-white">--- が上がり！</p>
             </div>
 
+            <!-- 決着がついた最後の単語の表示枠 -->
+            <div class="bg-slate-950/90 border-2 border-amber-400/50 rounded-2xl p-4 space-y-1 shadow-lg">
+                <span class="text-xs font-bold text-amber-300/80 uppercase tracking-widest block">決着がついた最後の単語</span>
+                <div id="winningWordDisplay" class="text-2xl md:text-4xl font-black text-amber-300">
+                    「---」
+                </div>
+            </div>
+
             <!-- リザルト：各プレイヤーの残りの手札一覧 -->
             <div class="space-y-3 bg-slate-950/80 p-5 rounded-3xl border border-emerald-500/30 text-left">
                 <h3 class="text-xs font-bold text-emerald-300 uppercase tracking-wider text-center border-b border-emerald-500/20 pb-2">
@@ -284,12 +292,12 @@
             </div>
 
             <div id="gameOverHostControls" class="hidden space-y-2 pt-2">
-                <button onclick="startGame()" class="w-full bg-gradient-to-r from-emerald-500 to-cyan-600 hover:from-emerald-400 hover:to-cyan-400 text-white font-black text-xl py-5 rounded-2xl shadow-xl transition transform active:scale-95">
-                    もう一度遊ぶ 🔄
+                <button onclick="returnToLobby()" class="w-full bg-gradient-to-r from-emerald-500 to-cyan-600 hover:from-emerald-400 hover:to-cyan-400 text-white font-black text-xl py-5 rounded-2xl shadow-xl transition transform active:scale-95">
+                    もう一度遊ぶ（ロビーへ戻る） 🔄
                 </button>
             </div>
             <p id="gameOverClientMsg" class="hidden text-sm text-emerald-300/70 animate-pulse">
-                ホストが次のゲームを準備中です...
+                ホストがロビーへ戻すのを待っています...
             </p>
         </div>
 
@@ -332,10 +340,15 @@
         let connections = {}; 
         let hostConn = null;
 
+        // 全クライアント側で効果音（SE）の重複・新規発生を検知するためのIDトラッカー
+        let lastSeenActionId = 0;
+
         // GAME STATE OBJECT
         let roomData = {
             hostId: "",
             status: 'LOBBY', // LOBBY, PLAYING, GAMEOVER
+            actionId: 0,
+            lastActionType: '', // 'PLAY', 'UNDO', 'RESET', 'START'
             fieldCard: "",
             lastPlayerId: "",
             lastPlayerName: "",
@@ -343,13 +356,12 @@
             lastFieldCardBefore: "",
             deck: [],
             players: {}, // { id: { id, name, hand: [], isHost } }
-            logs: [],
-            lastActionType: "" // SE同期用アクション判定
+            logs: []
         };
 
         let soundEnabled = true;
 
-        // AUDIO ENGINE (Web Audio API)
+        // AUDIO ENGINE
         const AudioCtx = window.AudioContext || window.webkitAudioContext;
         let audioCtx = null;
 
@@ -372,47 +384,40 @@
                     gain.gain.exponentialRampToValueAtTime(0.01, now + 0.05);
                     osc.start(now);
                     osc.stop(now + 0.05);
-                } else if (type === 'play_card') {
-                    // カード提出時の弾けるパンチのあるSE
-                    osc.type = 'triangle';
-                    osc.frequency.setValueAtTime(587.33, now); // D5
-                    osc.frequency.exponentialRampToValueAtTime(880, now + 0.08); // A5
-                    gain.gain.setValueAtTime(0.25, now);
-                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.12);
-                    osc.start(now);
-                    osc.stop(now + 0.12);
-                } else if (type === 'success') {
-                    [523.25, 659.25, 783.99].forEach((freq, i) => {
+                } else if (type === 'card_play') {
+                    // カードが出された時の爽快な効果音（パンッ！と弾む2音）
+                    [587.33, 880.00].forEach((freq, i) => {
                         const o = audioCtx.createOscillator();
                         const g = audioCtx.createGain();
                         o.connect(g);
                         g.connect(audioCtx.destination);
-                        o.type = 'sine';
-                        o.frequency.setValueAtTime(freq, now + i * 0.08);
-                        g.gain.setValueAtTime(0.12, now + i * 0.08);
-                        g.gain.exponentialRampToValueAtTime(0.01, now + i * 0.08 + 0.2);
-                        o.start(now + i * 0.08);
-                        o.stop(now + i * 0.08 + 0.2);
+                        o.type = 'triangle';
+                        o.frequency.setValueAtTime(freq, now + i * 0.06);
+                        g.gain.setValueAtTime(0.18, now + i * 0.06);
+                        g.gain.exponentialRampToValueAtTime(0.01, now + i * 0.06 + 0.16);
+                        o.start(now + i * 0.06);
+                        o.stop(now + i * 0.06 + 0.16);
                     });
                 } else if (type === 'alert') {
                     osc.type = 'sawtooth';
                     osc.frequency.setValueAtTime(300, now);
-                    osc.frequency.linearRampToValueAtTime(150, now + 0.3);
-                    gain.gain.setValueAtTime(0.2, now);
-                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
+                    osc.frequency.linearRampToValueAtTime(150, now + 0.25);
+                    gain.gain.setValueAtTime(0.18, now);
+                    gain.gain.exponentialRampToValueAtTime(0.01, now + 0.25);
                     osc.start(now);
-                    osc.stop(now + 0.3);
+                    osc.stop(now + 0.25);
                 } else if (type === 'victory') {
                     [523.25, 659.25, 783.99, 1046.50].forEach((freq, i) => {
                         const o = audioCtx.createOscillator();
                         const g = audioCtx.createGain();
                         o.connect(g);
                         g.connect(audioCtx.destination);
+                        o.type = 'sine';
                         o.frequency.setValueAtTime(freq, now + i * 0.1);
-                        g.gain.setValueAtTime(0.15, now + i * 0.1);
-                        g.gain.exponentialRampToValueAtTime(0.01, now + i * 0.1 + 0.25);
+                        g.gain.setValueAtTime(0.18, now + i * 0.1);
+                        g.gain.exponentialRampToValueAtTime(0.01, now + i * 0.1 + 0.28);
                         o.start(now + i * 0.1);
-                        o.stop(now + i * 0.1 + 0.25);
+                        o.stop(now + i * 0.1 + 0.28);
                     });
                 }
             } catch (e) {
@@ -554,9 +559,8 @@
             showView('viewRoomLobby');
         }
 
-        function broadcastState(actionType = "") {
+        function broadcastState() {
             if (!isHost) return;
-            roomData.lastActionType = actionType;
             Object.values(connections).forEach(c => c.send({ type: 'SYNC_STATE', roomData }));
             renderRoomState();
         }
@@ -581,13 +585,7 @@
 
         function handleClientData(data) {
             if (data.type === 'SYNC_STATE') {
-                const prevFieldCard = roomData.fieldCard;
                 roomData = data.roomData;
-                
-                // カード提出アクション時に全員の端末でSEを再生
-                if (roomData.lastActionType === 'PLAY_CARD' && prevFieldCard !== roomData.fieldCard) {
-                    playSound('play_card');
-                }
                 renderRoomState();
             } else if (data.type === 'ERROR') {
                 alert(data.message);
@@ -643,7 +641,6 @@
         }
 
         window.startGame = function() {
-            playSound('tap');
             if (!isHost) return;
 
             const playerIds = Object.keys(roomData.players);
@@ -665,9 +662,32 @@
             roomData.lastFieldCardBefore = "";
             roomData.status = 'PLAYING';
             roomData.logs = [];
+            roomData.actionId = (roomData.actionId || 0) + 1;
+            roomData.lastActionType = 'START';
 
             addLog(`=== ゲーム開始！ 最初の文字: 「${roomData.fieldCard}」 ===`);
-            broadcastState('START');
+            broadcastState();
+        };
+
+        window.returnToLobby = function() {
+            playSound('tap');
+            if (!isHost) return;
+
+            roomData.status = 'LOBBY';
+            roomData.fieldCard = "";
+            roomData.lastPlayerId = "";
+            roomData.lastPlayerName = "";
+            roomData.lastWord = "";
+            roomData.lastFieldCardBefore = "";
+            roomData.logs = [];
+            roomData.actionId = (roomData.actionId || 0) + 1;
+            roomData.lastActionType = 'LOBBY';
+
+            Object.values(roomData.players).forEach(p => {
+                p.hand = [];
+            });
+
+            broadcastState();
         };
 
         function processPlayWord(playerId, word, endChar) {
@@ -684,17 +704,18 @@
             roomData.lastPlayerId = playerId;
             roomData.lastPlayerName = player.name;
             roomData.lastWord = word;
+            roomData.actionId = (roomData.actionId || 0) + 1;
+            roomData.lastActionType = 'PLAY';
 
             addLog(`🎯 ${player.name}: 「${word}」 (${roomData.lastFieldCardBefore} ➔ ${endChar})`);
 
             if (player.hand.length === 0) {
                 roomData.status = 'GAMEOVER';
+                roomData.lastActionType = 'VICTORY';
                 addLog(`🏆 ${player.name} がすべての手札を出し切り、勝利しました！`);
-                broadcastState('GAMEOVER');
-            } else {
-                if (isHost) playSound('play_card');
-                broadcastState('PLAY_CARD');
             }
+
+            broadcastState();
         }
 
         function processUndo(playerId) {
@@ -711,10 +732,11 @@
             roomData.lastPlayerName = "";
             roomData.lastWord = "（取り消されました）";
             roomData.lastFieldCardBefore = "";
+            roomData.actionId = (roomData.actionId || 0) + 1;
+            roomData.lastActionType = 'UNDO';
 
-            if (isHost) playSound('alert');
             addLog(`↩️ ${player.name} が「${undoneWord}」を取り消し、手札に戻しました。`);
-            broadcastState('UNDO');
+            broadcastState();
         }
 
         function processResetHand(playerId) {
@@ -733,10 +755,11 @@
             }
 
             player.hand = roomData.deck.splice(0, newCount);
+            roomData.actionId = (roomData.actionId || 0) + 1;
+            roomData.lastActionType = 'RESET';
 
-            if (isHost) playSound('tap');
             addLog(`🔄 ${player.name} が手札をリセットしました（手札 ${currentCount}枚 ➔ ${newCount}枚）`);
-            broadcastState('RESET');
+            broadcastState();
         }
 
         // --- SUBMISSION & VALIDATION ---
@@ -813,6 +836,20 @@
 
         function renderRoomState() {
             if (!roomData) return;
+
+            // 全クライアント（ホスト＆ゲスト）共通で新しいアクション発生を検知し効果音を再生
+            if (roomData.actionId && roomData.actionId !== lastSeenActionId) {
+                lastSeenActionId = roomData.actionId;
+                if (roomData.lastActionType === 'PLAY') {
+                    playSound('card_play');
+                } else if (roomData.lastActionType === 'UNDO') {
+                    playSound('alert');
+                } else if (roomData.lastActionType === 'RESET' || roomData.lastActionType === 'START') {
+                    playSound('tap');
+                } else if (roomData.lastActionType === 'VICTORY') {
+                    playSound('victory');
+                }
+            }
 
             const isHostUser = roomData.hostId === myId;
             const myPlayer = roomData.players[myId];
@@ -933,7 +970,6 @@
 
             } else if (roomData.status === 'GAMEOVER') {
                 showView('viewGameOver');
-                playSound('victory');
                 if (typeof confetti === 'function') {
                     confetti({ particleCount: 150, spread: 90, origin: { y: 0.6 } });
                 }
@@ -941,6 +977,19 @@
                 const winnerName = roomData.lastPlayerName || "プレイヤー";
                 document.getElementById('winnerDeclaredMsg').innerText = `🎉 ${winnerName} の勝利！ 🎉`;
 
+                // 決着がついた最後の単語の表示
+                const winningWordEl = document.getElementById('winningWordDisplay');
+                if (winningWordEl) {
+                    const lastWordText = roomData.lastWord || "---";
+                    const fromChar = roomData.lastFieldCardBefore || "?";
+                    const toChar = roomData.fieldCard || "?";
+                    winningWordEl.innerHTML = `
+                        <div>「${escapeHtml(lastWordText)}」</div>
+                        <div class="text-xs font-normal text-emerald-300 mt-1">（お題「${escapeHtml(fromChar)}」➔「${escapeHtml(toChar)}」で上がり）</div>
+                    `;
+                }
+
+                // リザルト画面での各プレイヤー残り手札のレンダリング
                 const resultListEl = document.getElementById('resultPlayersHands');
                 if (resultListEl) {
                     resultListEl.innerHTML = '';
